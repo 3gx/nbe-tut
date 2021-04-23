@@ -298,7 +298,10 @@ pub fn alpha_norm(e: Expr) -> Expr {
                 gather(map, rator);
                 gather(map, rand);
             }
-            _ => todo!(),
+            Zero => (),
+            Succ(box expr) => gather(map, expr),
+            Rec(_, box e1, box e2, box e3) => [e1, e2, e3].iter().for_each(|e| gather(map, e)),
+            Ann(box e, _) => gather(map, e),
         }
     }
     let mut names = HashMap::new();
@@ -312,7 +315,15 @@ pub fn alpha_norm(e: Expr) -> Expr {
             Var(n) => Var(new_name(n)),
             Lambda(n, box e) => Lambda(new_name(n), rename(map, e).into()),
             App(box rator, box rand) => App(rename(map, rator).into(), rename(map, rand).into()),
-            _ => todo!(),
+            Zero => Zero,
+            Succ(box e) => Succ(rename(map, e).into()),
+            Rec(ty, box e1, box e2, box e3) => Rec(
+                ty,
+                rename(map, e1).into(),
+                rename(map, e2).into(),
+                rename(map, e3).into(),
+            ),
+            Ann(box e, ty) => Ann(rename(map, e).into(), ty),
         }
     }
 
@@ -391,6 +402,25 @@ pub fn check(ctx: &Context, e: &Expr, ty: &Ty) -> Result<(), Message> {
     }
 }
 
+pub fn norm_with_test_defs(e: Expr) -> Result<Expr, Message> {
+    let defs = list![
+        def! {two <- [(succ (succ zero)) : tnat]},
+        def! {three <- [(succ (succ (succ zero))) : tnat]},
+        def! {plus <- [(lam n
+        (lam k
+          (rec [tnat]
+            n
+            k
+            (lam pred
+              (lam almostSum
+                (succ almostSum)))))) :
+          (tnat -> (tnat -> tnat))]}
+    ];
+    let defs = add_defs(no_defs(), defs)?;
+    let norm = norm_with_defs(defs.clone(), e)?;
+    Ok(read_back_normal(defined_names(defs), norm)?)
+}
+
 // macros
 
 pub macro typ {
@@ -430,6 +460,33 @@ pub macro def($id:ident <- $expr:tt) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn t1() -> Result<(), Message> {
+        let e = expr! { plus };
+        let norm = norm_with_test_defs(e.clone())?;
+        println!("{:?} ~> {:?}", e, norm);
+
+        let e = expr! { (plus three) };
+        let norm = norm_with_test_defs(e.clone())?;
+        println!("{:?} ~> {:?}", e, norm);
+
+        let e = expr! { ((plus three) two) };
+        let norm = norm_with_test_defs(e.clone())?;
+        println!("{:?} ~> {:?}", e, norm);
+
+        fn to_church(n: usize) -> Expr {
+            match n {
+                0 => expr![zero],
+                _ => expr![(succ {to_church(n-1)})],
+            }
+        }
+        let egold = to_church(5);
+        println!("egold={:?}", egold);
+        assert_eq!(alpha_norm(norm), alpha_norm(egold));
+
+        Ok(())
+    }
 
     /*
         #[test]
