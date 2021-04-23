@@ -80,19 +80,19 @@ pub macro failure {
     ($($tt:tt)*) => {Err(Message(format!("{}:{}:{}", file!(), line!(), format!($($tt)*))))}
 }
 
-pub fn lookup_var<'a, T>(Env(env): &'a Env<T>, Name(name): &Name) -> Result<&'a T, Message> {
+fn lookup_var<'a, T>(Env(env): &'a Env<T>, Name(name): &Name) -> Result<&'a T, Message> {
     match env.iter().find(|(Name(n), _)| n == name) {
         Some((_, v)) => Ok(v),
         _ => failure!["Name not found: {:?}", name],
     }
 }
 
-pub fn extend<T: Clone>(Env(mut env): Env<T>, name: Name, val: T) -> Env<T> {
+fn extend<T: Clone>(Env(mut env): Env<T>, name: Name, val: T) -> Env<T> {
     env.push_front((name, val));
     Env(env)
 }
 
-pub fn eval(env: Env<Value>, e: Expr) -> Result<Value, Message> {
+fn eval(env: Env<Value>, e: Expr) -> Result<Value, Message> {
     use {Expr::*, Value::*};
     match e {
         Var(x) => lookup_var(&env, &x).map(|x| x.clone()),
@@ -114,7 +114,7 @@ pub fn eval(env: Env<Value>, e: Expr) -> Result<Value, Message> {
     }
 }
 
-pub fn do_apply(rator: Value, rand: Value) -> Result<Value, Message> {
+fn do_apply(rator: Value, rand: Value) -> Result<Value, Message> {
     use {Neutral::*, Ty::*, Value::*};
     match (rator, rand) {
         (VClosure(env, x, body), arg) => eval(extend(env, x, arg), body),
@@ -149,7 +149,7 @@ fn do_rec(t: Ty, v: Value, base: Value, step: Value) -> Result<Value, Message> {
     }
 }
 
-pub fn freshen(used: &List<Name>, Name(name): Name) -> Name {
+fn freshen(used: &List<Name>, Name(name): Name) -> Name {
     let next_name = |Name(name): Name| Name(name + "'");
     for Name(n) in used.iter() {
         if n == &name {
@@ -185,7 +185,7 @@ fn read_back_neutral(used: List<Name>, neu: Neutral) -> Result<Expr, Message> {
     }
 }
 
-pub fn read_back(used: List<Name>, ty: Ty, val: Value) -> Result<Expr, Message> {
+fn read_back(used: List<Name>, ty: Ty, val: Value) -> Result<Expr, Message> {
     use {Expr::*, Neutral::*, Ty::*, Value::*};
     match (ty, val) {
         (TNat, VZero) => Ok(Zero),
@@ -217,18 +217,18 @@ pub fn read_back(used: List<Name>, ty: Ty, val: Value) -> Result<Expr, Message> 
 
 type Defs = Env<Normal>;
 
-pub fn no_defs() -> Defs {
+fn no_defs() -> Defs {
     Defs::new()
 }
 
-pub fn defs2ctx(Env(defs): Defs) -> Context {
+fn defs2ctx(Env(defs): Defs) -> Context {
     Env(defs.into_iter().map(|(n, Normal(t, _))| (n, t)).collect())
 }
-pub fn defs2env(Env(defs): Defs) -> Env<Value> {
+fn defs2env(Env(defs): Defs) -> Env<Value> {
     Env(defs.into_iter().map(|(n, Normal(_, v))| (n, v)).collect())
 }
 
-pub fn add_defs(defs: Defs, exprs: List<(Name, Expr)>) -> Result<Defs, Message> {
+fn add_defs(defs: Defs, exprs: List<(Name, Expr)>) -> Result<Defs, Message> {
     exprs.into_iter().fold(Ok(defs), move |defs, (x, e)| {
         let defs = defs?;
         let norm = norm_with_defs(defs.clone(), e)?;
@@ -236,49 +236,15 @@ pub fn add_defs(defs: Defs, exprs: List<(Name, Expr)>) -> Result<Defs, Message> 
     })
 }
 
-pub fn norm_with_defs(defs: Defs, e: Expr) -> Result<Normal, Message> {
+fn norm_with_defs(defs: Defs, e: Expr) -> Result<Normal, Message> {
     let t = synth(&defs2ctx(defs.clone()), &e)?;
     let v = eval(defs2env(defs), e)?;
     Ok(Normal(t, v))
 }
 
-pub fn defined_names(Env(defs): Defs) -> List<Name> {
+fn defined_names(Env(defs): Defs) -> List<Name> {
     defs.into_iter().map(|(n, _)| n).collect()
 }
-
-/*
-pub fn normalize(expr: Expr) -> Result<Expr, Message> {
-    todo!()
-    /*
-    let val = eval(Env::new(), expr)?;
-    read_back(list![], val)
-        */
-}
-
-pub fn run_program(defs: List<(Name, Expr)>, expr: Expr) -> Result<Expr, Message> {
-    todo!();
-    /*
-    let env = add_defs(Env::new(), defs.clone())?;
-    let val = eval(env, expr)?;
-    read_back(defs.into_iter().map(|(n, _)| n).collect(), val)
-    */
-}
-
-pub fn add_defs(env: Env<Value>, defs: List<(Name, Expr)>) -> Result<Env<Value>, Message> {
-    defs.into_iter().fold(Ok(env), move |env, (x, e)| {
-        let env = env?;
-        let v = eval(env.clone(), e)?;
-        Ok(extend(env, x, v))
-    })
-}
-pub fn add_defs2ctx(ctx: Context, defs: List<(Name, Expr)>) -> Result<Context, Message> {
-    defs.into_iter().fold(Ok(ctx), move |ctx, (x, e)| {
-        let ctx = ctx?;
-        let t = synth(&ctx, &e)?;
-        Ok(extend(ctx, x, t))
-    })
-}
-*/
 
 use std::collections::HashMap;
 pub fn alpha_norm(e: Expr) -> Expr {
@@ -330,7 +296,7 @@ pub fn alpha_norm(e: Expr) -> Expr {
     rename(&names, e)
 }
 
-pub fn synth(ctx: &Context, e: &Expr) -> Result<Ty, Message> {
+fn synth(ctx: &Context, e: &Expr) -> Result<Ty, Message> {
     use {Expr::*, Ty::*};
     match e {
         Var(x) => lookup_var(ctx, x).map(|x| x.clone()),
@@ -368,7 +334,8 @@ pub fn synth(ctx: &Context, e: &Expr) -> Result<Ty, Message> {
         ],
     }
 }
-pub fn check(ctx: &Context, e: &Expr, ty: &Ty) -> Result<(), Message> {
+
+fn check(ctx: &Context, e: &Expr, ty: &Ty) -> Result<(), Message> {
     use {Expr::*, Ty::*};
     match e {
         // lambda abstraction
@@ -461,6 +428,13 @@ pub macro def($id:ident <- $expr:tt) {
 mod tests {
     use super::*;
 
+    fn to_church(n: usize, base: Expr) -> Expr {
+        match n {
+            0 => expr![{ base }],
+            _ => expr![(succ {to_church(n-1, base)})],
+        }
+    }
+
     #[test]
     fn t1() -> Result<(), Message> {
         let e = expr! { plus };
@@ -470,97 +444,15 @@ mod tests {
         let e = expr! { (plus three) };
         let norm = norm_with_test_defs(e.clone())?;
         println!("{:?} ~> {:?}", e, norm);
+        let egold = expr! { (lam x {to_church(3, expr![x])}) };
+        assert_eq!(alpha_norm(norm), alpha_norm(egold));
 
         let e = expr! { ((plus three) two) };
         let norm = norm_with_test_defs(e.clone())?;
         println!("{:?} ~> {:?}", e, norm);
-
-        fn to_church(n: usize) -> Expr {
-            match n {
-                0 => expr![zero],
-                _ => expr![(succ {to_church(n-1)})],
-            }
-        }
-        let egold = to_church(5);
-        println!("egold={:?}", egold);
+        let egold = to_church(5, expr![zero]);
         assert_eq!(alpha_norm(norm), alpha_norm(egold));
 
         Ok(())
     }
-
-    /*
-        #[test]
-        fn t1() {
-            let e1 = expr![(lam f (f (f f)))];
-            let e1str = format!("{:?}", e1);
-            println!("e1= {}", e1str);
-            assert_eq!(
-                e1str,
-                "Lambda(\"f\", App(Var(\"f\"), App(Var(\"f\"), Var(\"f\"))))"
-            );
-        }
-
-        #[test]
-        fn ch15_churcle_numerals() -> Result<(), Message> {
-            let church_defs = list![
-                def![zero1 <- (lam f (lam x x))],
-                def![add1 <- (lam n (lam f (lam x (f ((n f) x)))))],
-                def![plus <- (lam j (lam k (lam f (lam x ((j f) ((k f) x))))))],
-            ];
-            fn to_church(n: usize) -> Expr {
-                match n {
-                    0 => expr![zero1],
-                    _ => expr![(add1 {to_church(n-1)})],
-                }
-            }
-            let e = expr![((plus {to_church(2)}) {to_church(3)})];
-            let v = run_program(church_defs, e)?;
-            println!("v= {:?}", v);
-            let five = expr![(lam g (lam y (g (g (g (g (g y)))))))];
-            println!("5= {:?}", alpha_norm(five.clone()));
-            assert_eq!(alpha_norm(v), alpha_norm(five));
-            Ok(())
-        }
-
-        #[test]
-        fn types() {
-            let e1 = expr!([(lam x (lam y y)) : (tnat -> (tnat -> tnat))]);
-            let e1str = format!("{:?}", e1);
-            println!("e= {}", e1str);
-            assert_eq!(
-                e1str,
-                "Ann(Lambda(\"x\", Lambda(\"y\", Var(\"y\"))), TArr(TNat, TArr(TNat, TNat)))"
-            );
-        }
-
-        #[test]
-        fn types2() -> Result<(), Message> {
-            use Ty::*;
-            let ctx = list![
-                def![two <- [(succ (succ zero)) : tnat]],
-                def![three <- [(succ two) : tnat]],
-                def![plus <- [(lam n
-                                   (lam k
-                                        (rec [tnat]
-                                             n
-                                             k
-                                             (lam pred
-                                                  (lam almostSum
-                                                       (succ almostSum)))))) :
-                              (tnat -> (tnat -> tnat))]]
-            ];
-            let ctx = add_defs2ctx(Context::new(), ctx)?;
-            let e1 = expr![(plus three)];
-            let t1 = synth(&ctx, &e1)?;
-            println!("{:?} : {:?}", e1, t1);
-            assert_eq!(t1, TArr(TNat.into(), TNat.into()));
-
-            let e2 = expr![((plus three) two)];
-            let t2 = synth(&ctx, &e2)?;
-            println!("{:?} : {:?}", e2, t2);
-            assert_eq!(t2, TNat);
-
-            Ok(())
-        }
-    */
 }
