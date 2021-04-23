@@ -2,7 +2,7 @@
 pub enum Expr {
     Var(Name),
     Lambda(Name, Box<Expr>),
-    App(Box<Expr>, Box<Expr>),
+    Lam(Box<Expr>, Box<Expr>),
     Zero,
     Succ(Box<Expr>),
     Rec(Ty, Box<Expr>, Box<Expr>, Box<Expr>),
@@ -97,7 +97,7 @@ fn eval(env: Env<Value>, e: Expr) -> Result<Value, Message> {
     match e {
         Var(x) => lookup_var(&env, &x).map(|x| x.clone()),
         Lambda(x, box body) => Ok(VClosure(env, x, body)),
-        App(box rator, box rand) => {
+        Lam(box rator, box rand) => {
             let fun = eval(env.clone(), rator)?;
             let arg = eval(env, rand)?;
             do_apply(fun, arg)
@@ -172,7 +172,7 @@ fn read_back_neutral(used: List<Name>, neu: Neutral) -> Result<Expr, Message> {
     use {Expr::*, Neutral::*};
     match neu {
         NVar(x) => Ok(Var(x)),
-        NApp(box rator, box rand) => Ok(App(
+        NApp(box rator, box rand) => Ok(Lam(
             read_back_neutral(used.clone(), rator)?.into(),
             read_back_normal(used, rand)?.into(),
         )),
@@ -260,7 +260,7 @@ pub fn alpha_norm(e: Expr) -> Expr {
                 add2map(n);
                 gather(map, e);
             }
-            App(box rator, box rand) => {
+            Lam(box rator, box rand) => {
                 gather(map, rator);
                 gather(map, rand);
             }
@@ -280,7 +280,7 @@ pub fn alpha_norm(e: Expr) -> Expr {
         match e {
             Var(n) => Var(new_name(n)),
             Lambda(n, box e) => Lambda(new_name(n), rename(map, e).into()),
-            App(box rator, box rand) => App(rename(map, rator).into(), rename(map, rand).into()),
+            Lam(box rator, box rand) => Lam(rename(map, rator).into(), rename(map, rand).into()),
             Zero => Zero,
             Succ(box e) => Succ(rename(map, e).into()),
             Rec(ty, box e1, box e2, box e3) => Rec(
@@ -300,7 +300,7 @@ fn synth(ctx: &Context, e: &Expr) -> Result<Ty, Message> {
     use {Expr::*, Ty::*};
     match e {
         Var(x) => lookup_var(ctx, x).map(|x| x.clone()),
-        App(box rator, box rand) => match synth(ctx, rator)? {
+        Lam(box rator, box rand) => match synth(ctx, rator)? {
             TArr(box arg_ty, box ret_ty) => {
                 check(ctx, rand, &arg_ty)?;
                 Ok(ret_ty)
@@ -412,7 +412,7 @@ pub macro expr {
                   typ![$typ])
     },
     (($rator:tt $rand:tt)) => {
-        Expr::App(expr![$rator].into(), expr![$rand].into())
+        Expr::Lam(expr![$rator].into(), expr![$rand].into())
     },
     ($id:ident) => {
         Expr::Var(Name(stringify!($id).into()))
