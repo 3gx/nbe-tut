@@ -36,15 +36,20 @@ impl std::fmt::Debug for Name {
 
 #[derive(Debug, Clone)]
 pub enum Value {
+    VZero,
+    VSucc(Box<Value>),
     VClosure(Env<Value>, Name, Expr),
-    VNeutral(Neutral),
+    VNeutral(Ty, Neutral),
 }
 
 #[derive(Debug, Clone)]
 pub enum Neutral {
     NVar(Name),
     NApp(Box<Neutral>, Box<Value>),
+    NRec(Ty, Box<Neutral>, Normal, Normal),
 }
+#[derive(Debug, Clone)]
+struct Normal(/*normal_type*/ Ty, /*normal_value*/ Box<Value>);
 
 use std::collections::VecDeque;
 pub type List<T> = VecDeque<T>;
