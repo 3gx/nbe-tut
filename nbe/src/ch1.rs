@@ -124,7 +124,7 @@ pub fn add_defs(env: Env<Value>, defs: List<(Name, Expr)>) -> Result<Env<Value>,
 }
 
 #[cfg(test)]
-mod tets {
+mod tests {
     use super::*;
 
     #[test]
