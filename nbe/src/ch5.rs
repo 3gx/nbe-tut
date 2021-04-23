@@ -45,11 +45,14 @@ pub enum Value {
 #[derive(Debug, Clone)]
 pub enum Neutral {
     NVar(Name),
-    NApp(Box<Neutral>, Box<Value>),
+    NApp(Box<Neutral>, Normal),
     NRec(Ty, Box<Neutral>, Normal, Normal),
 }
 #[derive(Debug, Clone)]
-struct Normal(/*normal_type*/ Ty, /*normal_value*/ Box<Value>);
+pub struct Normal(
+    pub Ty,         /*normal_type*/
+    pub Box<Value>, /*normal_value*/
+);
 
 use std::collections::VecDeque;
 pub type List<T> = VecDeque<T>;
@@ -77,7 +80,7 @@ impl<T> Env<T> {
 pub struct Message(pub String);
 
 pub macro failure {
-    ($($tt:tt)*) => {Err(Message(format!($($tt)*)))}
+    ($($tt:tt)*) => {Err(Message(format!("{}:{}:{}", file!(), line!(), format!($($tt)*))))}
 }
 
 pub fn lookup_var<'a, T>(Env(env): &'a Env<T>, Name(name): &Name) -> Result<&'a T, Message> {
@@ -93,8 +96,7 @@ pub fn extend<T: Clone>(Env(mut env): Env<T>, name: Name, val: T) -> Env<T> {
 }
 
 pub fn eval(env: Env<Value>, e: Expr) -> Result<Value, Message> {
-    use Expr::*;
-    use Value::*;
+    use {Expr::*, Value::*};
     match e {
         Var(x) => lookup_var(&env, &x).map(|x| x.clone()),
         Lambda(x, box body) => Ok(VClosure(env, x, body)),
@@ -103,16 +105,49 @@ pub fn eval(env: Env<Value>, e: Expr) -> Result<Value, Message> {
             let arg = eval(env, rand)?;
             do_apply(fun, arg)
         }
-        other => panic!("unimplemented {:?}", other),
+        Zero => Ok(VZero),
+        Succ(box n) => Ok(VSucc(eval(env, n)?.into())),
+        Rec(t, box tgt, box base, box step) => do_rec(
+            t,
+            eval(env.clone(), tgt)?,
+            eval(env.clone(), base)?,
+            eval(env, step)?,
+        ),
+        Ann(box e, _) => eval(env, e),
     }
 }
 
 pub fn do_apply(rator: Value, rand: Value) -> Result<Value, Message> {
-    use Neutral::*;
-    use Value::*;
+    use {Neutral::*, Ty::*, Value::*};
     match (rator, rand) {
         (VClosure(env, x, body), arg) => eval(extend(env, x, arg), body),
-        (VNeutral(neu), arg) => Ok(VNeutral(NApp(neu.into(), arg.into()))),
+        (VNeutral(TArr(box t1, box t2), neu), arg) => {
+            Ok(VNeutral(t2, NApp(neu.into(), Normal(t1, arg.into()))))
+        }
+        other => failure!["can't apply {:?}", other],
+    }
+}
+fn do_rec(t: Ty, v: Value, base: Value, step: Value) -> Result<Value, Message> {
+    use {Neutral::*, Ty::*, Value::*};
+    match v {
+        VZero => Ok(base),
+        VSucc(box n) => do_apply(
+            do_apply(step.clone(), n.clone())?,
+            do_rec(t, n, base, step)?,
+        ),
+        VNeutral(TNat, neu) => Ok(VNeutral(
+            t.clone(),
+            NRec(
+                t.clone(),
+                neu.into(),
+                Normal(t.clone(), base.into()),
+                Normal(
+                    TArr(TNat.into(), TArr(t.clone().into(), t.into()).into()),
+                    step.into(),
+                ),
+            ),
+        )),
+        other => failure!["can't do_rec on {:?}", other],
     }
 }
 
@@ -131,25 +166,29 @@ fn cons<T>(x: T, mut list: List<T>) -> List<T> {
     list
 }
 
+//fn read_back_normal(used: List<Name>, norm: Normal) -> Result<Expr, Message> {}
+
 fn read_back(used: List<Name>, val: Value) -> Result<Expr, Message> {
-    use Expr::*;
-    use Neutral::*;
-    use Value::*;
+    /*
+    use {Expr::*, Neutral::*, Ty::*, Value::*};
     match val {
-        VNeutral(NVar(x)) => Ok(Var(x)),
-        VNeutral(NApp(box fun, box arg)) => {
-            let rator = read_back(used.clone(), VNeutral(fun))?;
+        VNeutral(_, NVar(x)) => Ok(Var(x)),
+        VNeutral(ty, NApp(box fun, arg)) => {
+            let rator = read_back(used.clone(), VNeutral(ty, fun))?;
             let rand = read_back(used, arg)?;
             Ok(App(rator.into(), rand.into()))
         }
         VClosure(env, x, body) => {
             let fun = VClosure(env, x.clone(), body);
             let x = freshen(&used, x);
-            let body_val = do_apply(fun, VNeutral(NVar(x.clone())))?;
+            let body_val = do_apply(fun, VNeutral(TNat, NVar(x.clone())))?;
             let body_expr = read_back(cons(x.clone(), used), body_val)?;
             Ok(Lambda(x, body_expr.into()))
         }
     }
+    todo!()
+    */
+    failure!["not-implemented"]
 }
 
 pub fn normalize(expr: Expr) -> Result<Expr, Message> {
