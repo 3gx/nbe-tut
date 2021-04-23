@@ -198,12 +198,9 @@ pub fn alpha_norm(e: Expr) -> Expr {
     gather(&mut names, &e);
 
     fn rename(map: &HashMap<String, usize>, e: Expr) -> Expr {
-        let new_name = |Name(name): Name| {
-            let sz = map.len();
-            let idx = map.get(&name).unwrap();
-            Name(format!("{}", sz - idx - 1))
-        };
         use Expr::*;
+        let new_name =
+            |Name(name): Name| Name(format!("{}", map.len() - map.get(&name).unwrap() - 1));
         match e {
             Var(n) => Var(new_name(n)),
             Lambda(n, box e) => Lambda(new_name(n), rename(map, e).into()),
