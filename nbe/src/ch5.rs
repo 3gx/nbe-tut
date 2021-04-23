@@ -45,14 +45,11 @@ pub enum Value {
 #[derive(Debug, Clone)]
 pub enum Neutral {
     NVar(Name),
-    NApp(Box<Neutral>, Normal),
-    NRec(Ty, Box<Neutral>, Normal, Normal),
+    NApp(Box<Neutral>, Box<Normal>),
+    NRec(Ty, Box<Neutral>, Box<Normal>, Box<Normal>),
 }
 #[derive(Debug, Clone)]
-pub struct Normal(
-    pub Ty,         /*normal_type*/
-    pub Box<Value>, /*normal_value*/
-);
+pub struct Normal(pub Ty /*normal_type*/, pub Value /*normal_value*/);
 
 use std::collections::VecDeque;
 pub type List<T> = VecDeque<T>;
@@ -122,7 +119,7 @@ pub fn do_apply(rator: Value, rand: Value) -> Result<Value, Message> {
     match (rator, rand) {
         (VClosure(env, x, body), arg) => eval(extend(env, x, arg), body),
         (VNeutral(TArr(box t1, box t2), neu), arg) => {
-            Ok(VNeutral(t2, NApp(neu.into(), Normal(t1, arg.into()))))
+            Ok(VNeutral(t2, NApp(neu.into(), Normal(t1, arg).into())))
         }
         other => failure!["can't apply {:?}", other],
     }
@@ -140,11 +137,12 @@ fn do_rec(t: Ty, v: Value, base: Value, step: Value) -> Result<Value, Message> {
             NRec(
                 t.clone(),
                 neu.into(),
-                Normal(t.clone(), base.into()),
+                Normal(t.clone(), base).into(),
                 Normal(
                     TArr(TNat.into(), TArr(t.clone().into(), t.into()).into()),
-                    step.into(),
-                ),
+                    step,
+                )
+                .into(),
             ),
         )),
         other => failure!["can't do_rec on {:?}", other],
@@ -166,40 +164,104 @@ fn cons<T>(x: T, mut list: List<T>) -> List<T> {
     list
 }
 
-//fn read_back_normal(used: List<Name>, norm: Normal) -> Result<Expr, Message> {}
-
-fn read_back(used: List<Name>, val: Value) -> Result<Expr, Message> {
-    /*
-    use {Expr::*, Neutral::*, Ty::*, Value::*};
-    match val {
-        VNeutral(_, NVar(x)) => Ok(Var(x)),
-        VNeutral(ty, NApp(box fun, arg)) => {
-            let rator = read_back(used.clone(), VNeutral(ty, fun))?;
-            let rand = read_back(used, arg)?;
-            Ok(App(rator.into(), rand.into()))
-        }
-        VClosure(env, x, body) => {
-            let fun = VClosure(env, x.clone(), body);
-            let x = freshen(&used, x);
-            let body_val = do_apply(fun, VNeutral(TNat, NVar(x.clone())))?;
-            let body_expr = read_back(cons(x.clone(), used), body_val)?;
-            Ok(Lambda(x, body_expr.into()))
-        }
-    }
-    todo!()
-    */
-    failure!["not-implemented"]
+fn read_back_normal(used: List<Name>, Normal(t, v): Normal) -> Result<Expr, Message> {
+    read_back(used, t, v)
 }
 
+fn read_back_neutral(used: List<Name>, neu: Neutral) -> Result<Expr, Message> {
+    use {Expr::*, Neutral::*};
+    match neu {
+        NVar(x) => Ok(Var(x)),
+        NApp(box rator, box rand) => Ok(App(
+            read_back_neutral(used.clone(), rator)?.into(),
+            read_back_normal(used, rand)?.into(),
+        )),
+        NRec(t, box neu, box base, box step) => Ok(Rec(
+            t,
+            read_back_neutral(used.clone(), neu)?.into(),
+            read_back_normal(used.clone(), base)?.into(),
+            read_back_normal(used, step)?.into(),
+        )),
+    }
+}
+
+pub fn read_back(used: List<Name>, ty: Ty, val: Value) -> Result<Expr, Message> {
+    use {Expr::*, Neutral::*, Ty::*, Value::*};
+    match (ty, val) {
+        (TNat, VZero) => Ok(Zero),
+        (TNat, VSucc(box pred)) => Ok(Succ(read_back(used, TNat, pred)?.into())),
+        (TArr(box t1, box t2), fun) => {
+            fn arg_name(v: Value) -> Name {
+                match v {
+                    VClosure(_, x, _) => x,
+                    _ => Name("x".into()),
+                }
+            }
+            let x = freshen(&used, arg_name(fun.clone()));
+            let xval = VNeutral(t1, NVar(x.clone()));
+            Ok(Lambda(
+                x.clone(),
+                read_back(cons(x, used), t2, do_apply(fun, xval)?)?.into(),
+            ))
+        }
+        (t1, VNeutral(t2, neu)) => {
+            if t1 == t2 {
+                read_back_neutral(used, neu)
+            } else {
+                failure!["Internal error: mismatched types {:?}", (t1, t2)]
+            }
+        }
+        other => failure!["can't read pack {:?}", other],
+    }
+}
+
+type Defs = Env<Normal>;
+
+pub fn no_defs() -> Defs {
+    Defs::new()
+}
+
+pub fn defs2ctx(Env(defs): Defs) -> Context {
+    Env(defs.into_iter().map(|(n, Normal(t, _))| (n, t)).collect())
+}
+pub fn defs2env(Env(defs): Defs) -> Env<Value> {
+    Env(defs.into_iter().map(|(n, Normal(_, v))| (n, v)).collect())
+}
+
+pub fn add_defs(defs: Defs, exprs: List<(Name, Expr)>) -> Result<Defs, Message> {
+    exprs.into_iter().fold(Ok(defs), move |defs, (x, e)| {
+        let defs = defs?;
+        let norm = norm_with_defs(defs.clone(), e)?;
+        Ok(extend(defs, x, norm))
+    })
+}
+
+pub fn norm_with_defs(defs: Defs, e: Expr) -> Result<Normal, Message> {
+    let t = synth(&defs2ctx(defs.clone()), &e)?;
+    let v = eval(defs2env(defs), e)?;
+    Ok(Normal(t, v))
+}
+
+pub fn defined_names(Env(defs): Defs) -> List<Name> {
+    defs.into_iter().map(|(n, _)| n).collect()
+}
+
+/*
 pub fn normalize(expr: Expr) -> Result<Expr, Message> {
+    todo!()
+    /*
     let val = eval(Env::new(), expr)?;
     read_back(list![], val)
+        */
 }
 
 pub fn run_program(defs: List<(Name, Expr)>, expr: Expr) -> Result<Expr, Message> {
+    todo!();
+    /*
     let env = add_defs(Env::new(), defs.clone())?;
     let val = eval(env, expr)?;
     read_back(defs.into_iter().map(|(n, _)| n).collect(), val)
+    */
 }
 
 pub fn add_defs(env: Env<Value>, defs: List<(Name, Expr)>) -> Result<Env<Value>, Message> {
@@ -216,6 +278,7 @@ pub fn add_defs2ctx(ctx: Context, defs: List<(Name, Expr)>) -> Result<Context, M
         Ok(extend(ctx, x, t))
     })
 }
+*/
 
 use std::collections::HashMap;
 pub fn alpha_norm(e: Expr) -> Expr {
@@ -368,77 +431,79 @@ pub macro def($id:ident <- $expr:tt) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn t1() {
-        let e1 = expr![(lam f (f (f f)))];
-        let e1str = format!("{:?}", e1);
-        println!("e1= {}", e1str);
-        assert_eq!(
-            e1str,
-            "Lambda(\"f\", App(Var(\"f\"), App(Var(\"f\"), Var(\"f\"))))"
-        );
-    }
-
-    #[test]
-    fn ch15_churcle_numerals() -> Result<(), Message> {
-        let church_defs = list![
-            def![zero1 <- (lam f (lam x x))],
-            def![add1 <- (lam n (lam f (lam x (f ((n f) x)))))],
-            def![plus <- (lam j (lam k (lam f (lam x ((j f) ((k f) x))))))],
-        ];
-        fn to_church(n: usize) -> Expr {
-            match n {
-                0 => expr![zero1],
-                _ => expr![(add1 {to_church(n-1)})],
-            }
+    /*
+        #[test]
+        fn t1() {
+            let e1 = expr![(lam f (f (f f)))];
+            let e1str = format!("{:?}", e1);
+            println!("e1= {}", e1str);
+            assert_eq!(
+                e1str,
+                "Lambda(\"f\", App(Var(\"f\"), App(Var(\"f\"), Var(\"f\"))))"
+            );
         }
-        let e = expr![((plus {to_church(2)}) {to_church(3)})];
-        let v = run_program(church_defs, e)?;
-        println!("v= {:?}", v);
-        let five = expr![(lam g (lam y (g (g (g (g (g y)))))))];
-        println!("5= {:?}", alpha_norm(five.clone()));
-        assert_eq!(alpha_norm(v), alpha_norm(five));
-        Ok(())
-    }
 
-    #[test]
-    fn types() {
-        let e1 = expr!([(lam x (lam y y)) : (tnat -> (tnat -> tnat))]);
-        let e1str = format!("{:?}", e1);
-        println!("e= {}", e1str);
-        assert_eq!(
-            e1str,
-            "Ann(Lambda(\"x\", Lambda(\"y\", Var(\"y\"))), TArr(TNat, TArr(TNat, TNat)))"
-        );
-    }
+        #[test]
+        fn ch15_churcle_numerals() -> Result<(), Message> {
+            let church_defs = list![
+                def![zero1 <- (lam f (lam x x))],
+                def![add1 <- (lam n (lam f (lam x (f ((n f) x)))))],
+                def![plus <- (lam j (lam k (lam f (lam x ((j f) ((k f) x))))))],
+            ];
+            fn to_church(n: usize) -> Expr {
+                match n {
+                    0 => expr![zero1],
+                    _ => expr![(add1 {to_church(n-1)})],
+                }
+            }
+            let e = expr![((plus {to_church(2)}) {to_church(3)})];
+            let v = run_program(church_defs, e)?;
+            println!("v= {:?}", v);
+            let five = expr![(lam g (lam y (g (g (g (g (g y)))))))];
+            println!("5= {:?}", alpha_norm(five.clone()));
+            assert_eq!(alpha_norm(v), alpha_norm(five));
+            Ok(())
+        }
 
-    #[test]
-    fn types2() -> Result<(), Message> {
-        use Ty::*;
-        let ctx = list![
-            def![two <- [(succ (succ zero)) : tnat]],
-            def![three <- [(succ two) : tnat]],
-            def![plus <- [(lam n
-                               (lam k
-                                    (rec [tnat]
-                                         n
-                                         k
-                                         (lam pred
-                                              (lam almostSum
-                                                   (succ almostSum)))))) :
-                          (tnat -> (tnat -> tnat))]]
-        ];
-        let ctx = add_defs2ctx(Context::new(), ctx)?;
-        let e1 = expr![(plus three)];
-        let t1 = synth(&ctx, &e1)?;
-        println!("{:?} : {:?}", e1, t1);
-        assert_eq!(t1, TArr(TNat.into(), TNat.into()));
+        #[test]
+        fn types() {
+            let e1 = expr!([(lam x (lam y y)) : (tnat -> (tnat -> tnat))]);
+            let e1str = format!("{:?}", e1);
+            println!("e= {}", e1str);
+            assert_eq!(
+                e1str,
+                "Ann(Lambda(\"x\", Lambda(\"y\", Var(\"y\"))), TArr(TNat, TArr(TNat, TNat)))"
+            );
+        }
 
-        let e2 = expr![((plus three) two)];
-        let t2 = synth(&ctx, &e2)?;
-        println!("{:?} : {:?}", e2, t2);
-        assert_eq!(t2, TNat);
+        #[test]
+        fn types2() -> Result<(), Message> {
+            use Ty::*;
+            let ctx = list![
+                def![two <- [(succ (succ zero)) : tnat]],
+                def![three <- [(succ two) : tnat]],
+                def![plus <- [(lam n
+                                   (lam k
+                                        (rec [tnat]
+                                             n
+                                             k
+                                             (lam pred
+                                                  (lam almostSum
+                                                       (succ almostSum)))))) :
+                              (tnat -> (tnat -> tnat))]]
+            ];
+            let ctx = add_defs2ctx(Context::new(), ctx)?;
+            let e1 = expr![(plus three)];
+            let t1 = synth(&ctx, &e1)?;
+            println!("{:?} : {:?}", e1, t1);
+            assert_eq!(t1, TArr(TNat.into(), TNat.into()));
 
-        Ok(())
-    }
+            let e2 = expr![((plus three) two)];
+            let t2 = synth(&ctx, &e2)?;
+            println!("{:?} : {:?}", e2, t2);
+            assert_eq!(t2, TNat);
+
+            Ok(())
+        }
+    */
 }
