@@ -121,10 +121,15 @@ fn read_back(used: List<Name>, val: Value) -> Result<Expr, Message> {
             Ok(App(rator.into(), rand.into()))
         }
         VClosure(env, x, body) => {
+            println!("++vclosure");
             let fun = VClosure(env, x.clone(), body);
+            dbg!(fun.clone());
             let x = freshen(&used, x);
+            dbg!(x.clone());
             let body_val = do_apply(fun, VNeutral(NVar(x.clone())))?;
+            dbg!(body_val.clone());
             let body_expr = read_back(cons(x.clone(), used), body_val)?;
+            dbg!(body_expr.clone());
             Ok(Lambda(x, body_expr.into()))
         }
     }
@@ -242,7 +247,7 @@ mod tests {
                 _ => expr![(add1 {to_church(n-1)})],
             }
         }
-        let e = expr![((plus {to_church(2)}) {to_church(3)})];
+        let e = expr![((plus {to_church(0)}) {to_church(1)})];
         let v = run_program(church_defs, e)?;
         println!("v= {:?}", v);
         let five = expr![(lam g (lam y (g (g (g (g (g y)))))))];
