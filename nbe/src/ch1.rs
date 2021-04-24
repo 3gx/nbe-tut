@@ -90,6 +90,7 @@ pub macro def($id:ident <- $expr:tt) {
 pub fn eval(env: Env<Value>, e: Expr) -> Result<Value, Message> {
     use Expr::*;
     use Value::*;
+    println!("--e={:?}", e);
     match e {
         Var(x) => lookup_var(&env, &x).map(|x| x.clone()),
         Lambda(x, box body) => Ok(VClosure(env, x, body)),
@@ -112,6 +113,7 @@ pub fn do_apply(rator: Value, rand: Value) -> Result<Value, Message> {
 
 pub fn run_program(defs: List<(Name, Expr)>, expr: Expr) -> Result<Value, Message> {
     let env = add_defs(Env::new(), defs)?;
+    println!("env= {:?}", env);
     eval(env, expr)
 }
 
@@ -143,7 +145,7 @@ mod tests {
         let church_defs = list![
             def![zero <- (lam f (lam x x))],
             def![add1 <- (lam n (lam f (lam x (f ((n f) x)))))],
-            def![plus <- (lam j (lam k (lam f (lam x ((j f) ((k f) x))))))],
+            //           def![plus <- (lam j (lam k (lam f (lam x ((j f) ((k f) x))))))],
         ];
         fn to_church(n: usize) -> Expr {
             match n {
@@ -151,7 +153,12 @@ mod tests {
                 _ => expr![(add1 {to_church(n-1)})],
             }
         }
+        let e = to_church(1);
+        println!("e= {:?}", e);
+        println!("eval(e)= {:?}", run_program(church_defs.clone(), e));
+        println!("--");
         let e = expr![((plus {to_church(2)}) {to_church(3)})];
+        println!("e= {:?}", e);
         let v = run_program(church_defs, e)?;
         println!("v= {:?}", v);
         match v {
