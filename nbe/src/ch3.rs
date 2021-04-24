@@ -74,6 +74,7 @@ pub fn extend<Val: Clone>(Env(mut env): Env<Val>, name: Name, val: Val) -> Env<V
 pub fn eval(env: Env<Value>, e: Expr) -> Result<Value, Message> {
     use Expr::*;
     use Value::*;
+    dbg!(e.clone());
     match e {
         Var(x) => lookup_var(&env, &x).map(|x| x.clone()),
         Lambda(x, box body) => Ok(VClosure(env, x, body)),
@@ -88,6 +89,8 @@ pub fn eval(env: Env<Value>, e: Expr) -> Result<Value, Message> {
 pub fn do_apply(rator: Value, rand: Value) -> Result<Value, Message> {
     use Neutral::*;
     use Value::*;
+    dbg!(rator.clone());
+    dbg!(rand.clone());
     match (rator, rand) {
         (VClosure(env, x, body), arg) => eval(extend(env, x, arg), body),
         (VNeutral(neu), arg) => Ok(VNeutral(NApp(neu.into(), arg.into()))),
@@ -247,7 +250,8 @@ mod tests {
                 _ => expr![(add1 {to_church(n-1)})],
             }
         }
-        let e = expr![((plus {to_church(0)}) {to_church(1)})];
+        //        let e = expr![((plus {to_church(0)}) {to_church(1)})];
+        let e = expr![(add1 zero)];
         let v = run_program(church_defs, e)?;
         println!("v= {:?}", v);
         let five = expr![(lam g (lam y (g (g (g (g (g y)))))))];
