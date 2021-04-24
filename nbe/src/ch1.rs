@@ -145,7 +145,7 @@ mod tests {
         let church_defs = list![
             def![zero <- (lam f (lam x x))],
             def![add1 <- (lam n (lam f (lam x (f ((n f) x)))))],
-            //           def![plus <- (lam j (lam k (lam f (lam x ((j f) ((k f) x))))))],
+            def![plus <- (lam j (lam k (lam f (lam x ((j f) ((k f) x))))))],
         ];
         fn to_church(n: usize) -> Expr {
             match n {

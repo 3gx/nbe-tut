@@ -137,7 +137,10 @@ pub fn normalize(expr: Expr) -> Result<Expr, Message> {
 
 pub fn run_program(defs: List<(Name, Expr)>, expr: Expr) -> Result<Expr, Message> {
     let env = add_defs(Env::new(), defs.clone())?;
+    println!("env= {:?}", env);
+    println!("expr= {:?}", expr);
     let val = eval(env, expr)?;
+    println!("v= {:?}", val);
     read_back(defs.into_iter().map(|(n, _)| n).collect(), val)
 }
 
